@@ -1,0 +1,28 @@
+cmake_minimum_required(VERSION 3.20)
+project(dock_detector_nav2)
+find_package(ament_cmake REQUIRED)
+find_package(opennav_docking REQUIRED)
+find_package(dock_detector_interfaces REQUIRED)
+find_package(pluginlib REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
+add_library(lidar_dock SHARED src/lidar_dock.cpp)
+target_compile_features(lidar_dock PUBLIC cxx_std_17)
+target_include_directories(lidar_dock PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include/${PROJECT_NAME}>)
+target_link_libraries(lidar_dock PUBLIC opennav_docking::simple_non_charging_dock
+  dock_detector_interfaces::dock_detector_interfaces__rosidl_typesupport_cpp
+  tf2_geometry_msgs::tf2_geometry_msgs pluginlib::pluginlib)
+pluginlib_export_plugin_description_file(opennav_docking_core plugins.xml)
+install(TARGETS lidar_dock EXPORT ${PROJECT_NAME} LIBRARY DESTINATION lib)
+install(DIRECTORY include/ DESTINATION include/${PROJECT_NAME})
+install(FILES README.md DESTINATION share/${PROJECT_NAME})
+ament_export_targets(${PROJECT_NAME})
+ament_export_dependencies(opennav_docking dock_detector_interfaces tf2_geometry_msgs pluginlib)
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+  find_package(angles REQUIRED)
+  ament_add_gtest(test_lidar_dock test/test_lidar_dock.cpp)
+  target_link_libraries(test_lidar_dock lidar_dock nav2_util::nav2_util_core angles::angles)
+endif()
+ament_package()

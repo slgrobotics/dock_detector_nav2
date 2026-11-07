@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>dock_detector_nav2</name><version>0.1.0</version>
+  <description>Thin Nav2 plugin for named LiDAR dock detection.</description>
+  <maintainer email="slg@quakemap.com">Sergei Grichine</maintainer><license>Apache-2.0</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>opennav_docking</depend><depend>opennav_docking_core</depend>
+  <depend>dock_detector_interfaces</depend><depend>pluginlib</depend>
+  <depend>rclcpp</depend><depend>nav2_ros_common</depend><depend>tf2_geometry_msgs</depend>
+  <test_depend>ament_cmake_gtest</test_depend><test_depend>nav2_util</test_depend>
+  <test_depend>angles</test_depend>
+  <test_depend>dock_detector</test_depend><test_depend>rclpy</test_depend>
+  <test_depend>lifecycle_msgs</test_depend><test_depend>python3-pytest</test_depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>

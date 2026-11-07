@@ -52,6 +52,12 @@ source tree is not modified or compiled by this build.
 
 ## Catalogue and configuration
 
+Seggy simulation now enables this plugin through its normal bringup. See
+[Seggy simulation docking](../articubot_one/docs/seggy_docking/README.md) for the
+persistent robot-specific catalogue/tuning files and automatic launch-time merge.
+The manual generator below remains available for other integrations and inspection.
+
+
 `dock_detector/config/seggy_docks.yaml` is an example single source for both
 perception and Nav2's named dock database. Dock IDs are catalogue keys (not separate
 UUIDs). Important: Nav2 forwards the database entry's optional `id` field to
@@ -76,7 +82,7 @@ docking type/database with one backward noncharging LiDAR plugin. Review the
 output, map alignment, base frame, local costmap and footprint topic names,
 physical clearance and safety configuration before using it. Defaults: 0.035 m/s
 maximum, 0.08 rad/s maximum, 0.025 m XY arrival threshold, 90 s approach timeout,
-0.8 m staging distance. Near-dock trajectory-check exclusions remain Nav2's
+0.8 m staging distance. Seggy simulation overrides staging to 0.5 m. Near-dock trajectory-check exclusions remain Nav2's
 behavior; Collision Monitor remains in the command path.
 
 Start the detector in catalogue mode:

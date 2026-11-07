@@ -27,6 +27,11 @@ which handles driving to the bay, reversing into it, and trying again if docking
 fails. Reports from the wrong dock or an old search are rejected. This package
 provides the connection; Nav2 remains in charge of the docking motion.
 
+**Related packages and data:**
+- https://github.com/slgrobotics/dock_detector
+- https://github.com/slgrobotics/dock_detector_interfaces
+- https://github.com/slgrobotics/dock_detector/tree/main/media
+
 ## Technical overview
 
 `dock_detector_nav2::LidarDock` derives from Nav2's SimpleNonChargingDock. It

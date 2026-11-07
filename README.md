@@ -6,7 +6,7 @@ Back to [Main Project Home](https://github.com/slgrobotics/articubot_one/wiki)
 
 **Contents:**
 
-- [What is this dock_detector_nav2 package for?](#what-is-this-dock_detector_nav2-package-for)
+- [What is this package for?](#what-is-this-package-for)
 - [Technical overview](#technical-overview)
 - [Build](#build)
 - [Catalogue and configuration](#catalogue-and-configuration)
@@ -15,7 +15,7 @@ Back to [Main Project Home](https://github.com/slgrobotics/articubot_one/wiki)
 
 -------------
 
-## What is this dock_detector_nav2 package for?
+## What is this package for?
 
 A robot may know how to drive around a room but still need help finding the exact
 spot where it should park. This package connects its navigation software, Nav2,

@@ -26,6 +26,7 @@ protected:
     node->declare_parameter("lidar.external_detection_timeout", .15);
     node->declare_parameter("lidar.selection_timeout", .2);
     node->declare_parameter("lidar.dock_direction", std::string("backward"));
+    node->declare_parameter("lidar.docking_threshold_yaw", 3.0);
     node->declare_parameter("lidar.staging_x_offset", -.8);
     node->declare_parameter("lidar.staging_yaw_offset", M_PI);
     server = std::make_shared<rclcpp::Node>("detector_stub");
@@ -40,7 +41,8 @@ protected:
     loader = std::make_unique<pluginlib::ClassLoader<opennav_docking_core::ChargingDock>>(
       "opennav_docking_core", "opennav_docking_core::ChargingDock");
     plugin = loader->createSharedInstance("dock_detector_nav2::LidarDock");
-    plugin->configure(node, "lidar", nullptr);
+    tf = std::make_shared<nav2::TransformBuffer>(node->get_clock());
+    plugin->configure(node, "lidar", tf);
     plugin->activate();
     executor.add_node(node->get_node_base_interface()); executor.add_node(server);
     ASSERT_TRUE(plugin->startDetectionProcess());
@@ -85,6 +87,7 @@ protected:
   rclcpp::Publisher<Detection>::SharedPtr publisher;
   std::unique_ptr<pluginlib::ClassLoader<opennav_docking_core::ChargingDock>> loader;
   opennav_docking_core::ChargingDock::Ptr plugin;
+  nav2::TransformBuffer::SharedPtr tf;
   Select::Request selected;
   std::vector<Select::Request> requests;
   geometry_msgs::msg::PoseStamped pose;
@@ -112,6 +115,40 @@ TEST_F(PluginTest, IdentifiedAcquisitionSwitchAndFreshness)
   ASSERT_TRUE(plugin->startDetectionProcess()); select("b");
   EXPECT_NE(selected.acquisition_id, current.acquisition_id);
   publisher->publish(current); spin(); EXPECT_FALSE(plugin->getRefinedPose(pose, "b"));
+}
+
+TEST_F(PluginTest, ArrivalRequiresPositionAndBackwardHeading)
+{
+  select("a");
+  auto msg = measurement();
+  publisher->publish(msg);
+  spin();
+  ASSERT_TRUE(plugin->getRefinedPose(pose, "a"));
+
+  geometry_msgs::msg::TransformStamped base;
+  base.header.frame_id = "odom";
+  base.child_frame_id = "base_link";
+  base.transform.translation.x = msg.pose.pose.position.x;
+  base.transform.rotation.w = 1.0;
+  ASSERT_TRUE(tf->setTransform(base, "test", true));
+  EXPECT_FALSE(plugin->isDocked());
+
+  tf2::Quaternion heading;
+  // This heading is just over the configured 3-degree limit across the wrap.
+  heading.setRPY(0.0, 0.0, -M_PI + 0.06);
+  base.transform.rotation = tf2::toMsg(heading);
+  ASSERT_TRUE(tf->setTransform(base, "test", true));
+  EXPECT_FALSE(plugin->isDocked());
+
+  // A smaller yaw on the negative side of the wrap is within the limit.
+  heading.setRPY(0.0, 0.0, -M_PI + 0.04);
+  base.transform.rotation = tf2::toMsg(heading);
+  ASSERT_TRUE(tf->setTransform(base, "test", true));
+  EXPECT_TRUE(plugin->isDocked());
+
+  base.transform.translation.x += 0.1;
+  ASSERT_TRUE(tf->setTransform(base, "test", true));
+  EXPECT_FALSE(plugin->isDocked());
 }
 
 TEST_F(PluginTest, UnknownDockAndUnnamedGoalFail)

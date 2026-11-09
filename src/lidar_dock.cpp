@@ -9,6 +9,17 @@
 
 namespace dock_detector_nav2
 {
+namespace
+{
+double yawError(const geometry_msgs::msg::Pose & robot,
+  const geometry_msgs::msg::Pose & dock, double heading_offset)
+{
+  return std::remainder(
+    tf2::getYaw(robot.orientation) - tf2::getYaw(dock.orientation) - heading_offset,
+    2.0 * M_PI);
+}
+}  // namespace
+
 void LidarDock::configure(const nav2::LifecycleNode::WeakPtr & parent,
   const std::string & name, nav2::TransformBuffer::SharedPtr tf)
 {
@@ -21,6 +32,14 @@ void LidarDock::configure(const nav2::LifecycleNode::WeakPtr & parent,
     std::string("dock_detector/select_dock"));
   auto topic = node_->declare_or_get_parameter(name + ".detection_topic",
     std::string("dock_detector/detection"));
+  const double docking_threshold_yaw_deg = node_->declare_or_get_parameter(
+    name + ".docking_threshold_yaw", 5.0);
+  if (!std::isfinite(docking_threshold_yaw_deg) ||
+    docking_threshold_yaw_deg <= 0.0 || docking_threshold_yaw_deg > 180.0)
+  {
+    throw std::invalid_argument("docking_threshold_yaw must be in (0, 180] degrees");
+  }
+  docking_threshold_yaw_rad_ = docking_threshold_yaw_deg * M_PI / 180.0;
   trace_enabled_ = node_->declare_or_get_parameter(name + ".trace_enabled", false);
   selection_timeout_ = node_->declare_or_get_parameter(name + ".selection_timeout", 3.0);
   filter_coefficient_ = node_->declare_or_get_parameter(name + ".filter_coef", 0.1);
@@ -183,29 +202,40 @@ bool LidarDock::isDocked()
   {
     return false;
   }
-  const bool arrived = SimpleNonChargingDock::isDocked();
-  if (trace_enabled_) {
-    traceApproach(arrived);
+  const bool contact = SimpleNonChargingDock::isDocked();
+  const auto now = Steady::now();
+  const bool trace_due = trace_enabled_ && now - last_trace_ >= std::chrono::milliseconds(500);
+  if (!contact && !trace_due) {
+    return false;
+  }
+
+  geometry_msgs::msg::PoseStamped base;
+  base.header.frame_id = base_frame_id_;
+  base.pose.orientation.w = 1.0;
+  try {
+    tf2_buffer_->transform(base, base, dock_pose_.header.frame_id);
+  } catch (const tf2::TransformException &) {
+    return false;
+  }
+
+  const double heading_offset =
+    getDockDirection() == opennav_docking_core::DockDirection::BACKWARD ? M_PI : 0.0;
+  const double filtered_yaw_error = yawError(base.pose, dock_pose_.pose, heading_offset);
+  const bool arrived = contact && std::abs(filtered_yaw_error) <= docking_threshold_yaw_rad_;
+  if (trace_enabled_ && (arrived || trace_due)) {
+    last_trace_ = now;
+    traceApproach(arrived, base, heading_offset, filtered_yaw_error);
   }
   return arrived;
 }
 
-void LidarDock::traceApproach(bool arrived)
+void LidarDock::traceApproach(bool arrived, const geometry_msgs::msg::PoseStamped & base,
+  double heading_offset, double filtered_yaw_error)
 {
-  const auto now = Steady::now();
-  if (!arrived && now - last_trace_ < std::chrono::milliseconds(500)) {
-    return;
-  }
-  last_trace_ = now;
-
   auto raw = latest_.pose;
-  geometry_msgs::msg::PoseStamped base;
-  base.header.frame_id = base_frame_id_;
-  base.pose.orientation.w = 1.0;
   const auto & frame = dock_pose_.header.frame_id;
   const char * phase = arrived ? "arrival" : "approach";
   try {
-    tf2_buffer_->transform(base, base, frame);
     if (raw.header.frame_id != frame) {
       tf2_buffer_->transform(raw, raw, frame);
     }
@@ -220,23 +250,23 @@ void LidarDock::traceApproach(bool arrived)
   const auto & filtered = dock_pose_.pose.position;
   const double dx = robot.x - measured.x;
   const double dy = robot.y - measured.y;
-  const double heading_offset =
-    getDockDirection() == opennav_docking_core::DockDirection::BACKWARD ? M_PI : 0.0;
-  const double yaw_error = tf2::getYaw(base.pose.orientation) -
-    tf2::getYaw(raw.pose.orientation) - heading_offset;
   const rclcpp::Time scan_stamp(latest_.pose.header.stamp, node_->get_clock()->get_clock_type());
   const double scan_age_ms = (node_->now() - scan_stamp).seconds() * 1000.0;
   RCLCPP_INFO(node_->get_logger(),
     "DOCK: %s id=%s frame=%s scan_age_ms=%.1f robot=(%.3f,%.3f) "
-    "detected=(%.3f,%.3f) filtered=(%.3f,%.3f) threshold_cm=%.2f",
+    "detected=(%.3f,%.3f) filtered=(%.3f,%.3f) threshold_cm=%.2f threshold_yaw_deg=%.2f",
     phase, id_.c_str(), frame.c_str(), scan_age_ms,
-    robot.x, robot.y, measured.x, measured.y, filtered.x, filtered.y, 100.0 * docking_threshold_);
+    robot.x, robot.y, measured.x, measured.y, filtered.x, filtered.y, 100.0 * docking_threshold_,
+    docking_threshold_yaw_rad_ * 180.0 / M_PI
+  );
   RCLCPP_INFO(node_->get_logger(),
-    "      xy_cm=%.2f yaw_deg=%+.2f filtered_xy_cm=%.2f dx_cm=%+.2f dy_cm=%+.2f",
+    "      xy_cm=%.2f yaw_deg=%+.2f filtered_xy_cm=%.2f dx_cm=%+.2f dy_cm=%+.2f "
+    "filtered_yaw_deg=%+.2f",
     100.0 * std::hypot(dx, dy),
-    std::remainder(yaw_error, 2.0 * M_PI) * 180.0 / M_PI,
+    yawError(base.pose, raw.pose, heading_offset) * 180.0 / M_PI,
     100.0 * std::hypot(robot.x - filtered.x, robot.y - filtered.y),
-    100.0 * dx, 100.0 * dy
+    100.0 * dx, 100.0 * dy,
+    filtered_yaw_error * 180.0 / M_PI
   );
 }
 

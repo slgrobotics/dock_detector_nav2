@@ -178,8 +178,8 @@ Add `trace_enabled: true` under `docking_server.ros__parameters.lidar_dock`
 in the selected Seggy docking settings overlay. Restart the docking server to
 load the setting. The default is false.
 
-The server logs `LiDAR dock approach` at most twice per second when it has a fresh,
-refined pose. A successful arrival check logs `LiDAR dock arrival` immediately.
+The server logs `DOCK: approach` at most twice per second when it has a fresh,
+refined pose. A successful arrival check logs `DOCK: arrival` immediately.
 Each line includes the dock ID, frame, and `scan_age_ms`, the elapsed ROS time
 from the LiDAR scan to the log sample. Robot and parking coordinates are in metres
 with three decimal places. `dx_cm` and `dy_cm` are robot minus detected position
@@ -187,12 +187,12 @@ in the logged frame. `xy_cm` is their planar distance.
 `yaw_deg` is robot heading minus the desired parking heading, with the
 180-degree adjustment applied for backward docking.
 
-Compare `filtered_xy_cm` with `threshold_cm` to track progress toward Nav2's
-pose-based arrival threshold. The trace samples TF at the arrival check, before
-the stop command and any settling. The raw error can differ from the filtered
-error used for arrival. The trace takes its own TF sample after the decision,
-so the logged filtered distance can differ slightly from the value used in the
-check.
+With pose-based docking, arrival requires both the filtered planar distance
+to be below `docking_threshold` (metres) and the absolute filtered yaw error
+to be at or below `docking_threshold_yaw` (degrees, default 5.0).
+The yaw tolerance also applies when stall detection supplies the contact check.
+Compare `filtered_yaw_deg` with `threshold_yaw_deg` in the trace.
+The trace is sampled before the stop command and any settling.
 
 ## Verification
 

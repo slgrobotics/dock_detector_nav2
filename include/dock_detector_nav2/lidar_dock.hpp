@@ -27,7 +27,8 @@ private:
   void receive(Detection::ConstSharedPtr);
   void reset();
   bool fresh() const;
-  void traceApproach(bool arrived);
+  void traceApproach(bool arrived, const geometry_msgs::msg::PoseStamped & base,
+    double heading_offset, double filtered_yaw_error);
   std::mutex mutex_;
   rclcpp::Client<Select>::SharedPtr client_;
   nav2::Subscription<Detection>::SharedPtr subscription_;
@@ -41,6 +42,7 @@ private:
   bool trace_enabled_{false};
   rclcpp::Time selected_stamp_{0, 0, RCL_ROS_TIME};
   int64_t filtered_stamp_{0};
+  double docking_threshold_yaw_rad_;
   double selection_timeout_{3.0}, filter_coefficient_{0.1};
 };
 }

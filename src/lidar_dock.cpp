@@ -227,15 +227,17 @@ void LidarDock::traceApproach(bool arrived)
   const rclcpp::Time scan_stamp(latest_.pose.header.stamp, node_->get_clock()->get_clock_type());
   const double scan_age_ms = (node_->now() - scan_stamp).seconds() * 1000.0;
   RCLCPP_INFO(node_->get_logger(),
-    "LiDAR dock %s id=%s frame=%s scan_age_ms=%.1f robot=(%.3f,%.3f) "
-    "detected=(%.3f,%.3f) filtered=(%.3f,%.3f) "
-    "dx_cm=%+.2f dy_cm=%+.2f xy_cm=%.2f yaw_deg=%+.2f "
-    "filtered_xy_cm=%.2f threshold_cm=%.2f",
+    "DOCK: %s id=%s frame=%s scan_age_ms=%.1f robot=(%.3f,%.3f) "
+    "detected=(%.3f,%.3f) filtered=(%.3f,%.3f) threshold_cm=%.2f",
     phase, id_.c_str(), frame.c_str(), scan_age_ms,
-    robot.x, robot.y, measured.x, measured.y, filtered.x, filtered.y,
-    100.0 * dx, 100.0 * dy, 100.0 * std::hypot(dx, dy), std::remainder(yaw_error, 2.0 * M_PI) * 180.0 / M_PI,
+    robot.x, robot.y, measured.x, measured.y, filtered.x, filtered.y, 100.0 * docking_threshold_);
+  RCLCPP_INFO(node_->get_logger(),
+    "      xy_cm=%.2f yaw_deg=%+.2f filtered_xy_cm=%.2f dx_cm=%+.2f dy_cm=%+.2f",
+    100.0 * std::hypot(dx, dy),
+    std::remainder(yaw_error, 2.0 * M_PI) * 180.0 / M_PI,
     100.0 * std::hypot(robot.x - filtered.x, robot.y - filtered.y),
-    100.0 * docking_threshold_);
+    100.0 * dx, 100.0 * dy
+  );
 }
 
 void LidarDock::deactivate()

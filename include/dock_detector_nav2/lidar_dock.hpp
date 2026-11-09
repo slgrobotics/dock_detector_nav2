@@ -27,6 +27,7 @@ private:
   void receive(Detection::ConstSharedPtr);
   void reset();
   bool fresh() const;
+  void traceApproach(bool arrived);
   std::mutex mutex_;
   rclcpp::Client<Select>::SharedPtr client_;
   nav2::Subscription<Detection>::SharedPtr subscription_;
@@ -36,6 +37,8 @@ private:
   Detection latest_;
   bool active_{false}, acknowledged_{false}, received_{false}, refined_{false};
   Steady::time_point requested_, receipt_;
+  Steady::time_point last_trace_{};
+  bool trace_enabled_{false};
   rclcpp::Time selected_stamp_{0, 0, RCL_ROS_TIME};
   int64_t filtered_stamp_{0};
   double selection_timeout_{3.0}, filter_coefficient_{0.1};

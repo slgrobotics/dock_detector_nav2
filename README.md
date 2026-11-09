@@ -11,6 +11,7 @@ Back to [Main Project Home](https://github.com/slgrobotics/articubot_one/wiki)
 - [Build](#build)
 - [Catalogue and configuration](#catalogue-and-configuration)
 - [Selection and freshness](#selection-and-freshness)
+- [Approach and arrival tracing](#approach-and-arrival-tracing)
 - [Verification](#verification)
 
 -------------
@@ -170,6 +171,28 @@ parameter dictionary independently of namespace. Frame strings are configured
 explicitly; namespacing does not rename them. Shared bay allocation remains a
 mission/fleet concern. Detections of geometrically identical nearby bays can still
 be ambiguous within a prior; catalogue identity is association, not a physical ID.
+
+## Approach and arrival tracing
+
+Add `trace_enabled: true` under `docking_server.ros__parameters.lidar_dock`
+in the selected Seggy docking settings overlay. Restart the docking server to
+load the setting. The default is false.
+
+The server logs `LiDAR dock approach` at most twice per second when it has a fresh,
+refined pose. A successful arrival check logs `LiDAR dock arrival` immediately.
+Each line includes the dock ID, frame, and `scan_age_ms`, the elapsed ROS time
+from the LiDAR scan to the log sample. Robot and parking coordinates are in metres
+with three decimal places. `dx_cm` and `dy_cm` are robot minus detected position
+in the logged frame. `xy_cm` is their planar distance.
+`yaw_deg` is robot heading minus the desired parking heading, with the
+180-degree adjustment applied for backward docking.
+
+Compare `filtered_xy_cm` with `threshold_cm` to track progress toward Nav2's
+pose-based arrival threshold. The trace samples TF at the arrival check, before
+the stop command and any settling. The raw error can differ from the filtered
+error used for arrival. The trace takes its own TF sample after the decision,
+so the logged filtered distance can differ slightly from the value used in the
+check.
 
 ## Verification
 

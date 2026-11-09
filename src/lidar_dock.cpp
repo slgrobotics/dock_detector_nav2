@@ -4,6 +4,7 @@
 #include <sstream>
 #include "pluginlib/class_list_macros.hpp"
 #include "opennav_docking_core/docking_exceptions.hpp"
+#include "tf2/utils.hpp"
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 
 namespace dock_detector_nav2
@@ -20,6 +21,7 @@ void LidarDock::configure(const nav2::LifecycleNode::WeakPtr & parent,
     std::string("dock_detector/select_dock"));
   auto topic = node_->declare_or_get_parameter(name + ".detection_topic",
     std::string("dock_detector/detection"));
+  trace_enabled_ = node_->declare_or_get_parameter(name + ".trace_enabled", false);
   selection_timeout_ = node_->declare_or_get_parameter(name + ".selection_timeout", 3.0);
   filter_coefficient_ = node_->declare_or_get_parameter(name + ".filter_coef", 0.1);
   if (!std::isfinite(selection_timeout_) || selection_timeout_ <= 0 ||
@@ -51,6 +53,7 @@ void LidarDock::reset()
   id_.clear(); token_.clear();
   acknowledged_ = received_ = refined_ = false;
   filtered_stamp_ = 0;
+  last_trace_ = {};
   latest_ = Detection();
   dock_pose_ = geometry_msgs::msg::PoseStamped();
   filter_ = std::make_unique<opennav_docking::PoseFilter>(
@@ -175,9 +178,64 @@ bool LidarDock::getRefinedPose(geometry_msgs::msg::PoseStamped & pose, std::stri
 bool LidarDock::isDocked()
 {
   std::lock_guard<std::mutex> guard(mutex_);
-  return refined_ && fresh() &&
-    rclcpp::Time(latest_.pose.header.stamp).nanoseconds() == filtered_stamp_ &&
-    SimpleNonChargingDock::isDocked();
+  if (!refined_ || !fresh() ||
+    rclcpp::Time(latest_.pose.header.stamp).nanoseconds() != filtered_stamp_)
+  {
+    return false;
+  }
+  const bool arrived = SimpleNonChargingDock::isDocked();
+  if (trace_enabled_) {
+    traceApproach(arrived);
+  }
+  return arrived;
+}
+
+void LidarDock::traceApproach(bool arrived)
+{
+  const auto now = Steady::now();
+  if (!arrived && now - last_trace_ < std::chrono::milliseconds(500)) {
+    return;
+  }
+  last_trace_ = now;
+
+  auto raw = latest_.pose;
+  geometry_msgs::msg::PoseStamped base;
+  base.header.frame_id = base_frame_id_;
+  base.pose.orientation.w = 1.0;
+  const auto & frame = dock_pose_.header.frame_id;
+  const char * phase = arrived ? "arrival" : "approach";
+  try {
+    tf2_buffer_->transform(base, base, frame);
+    if (raw.header.frame_id != frame) {
+      tf2_buffer_->transform(raw, raw, frame);
+    }
+  } catch (const tf2::TransformException & error) {
+    RCLCPP_WARN(node_->get_logger(), "LiDAR dock %s id=%s trace TF unavailable: %s",
+      phase, id_.c_str(), error.what());
+    return;
+  }
+
+  const auto & robot = base.pose.position;
+  const auto & measured = raw.pose.position;
+  const auto & filtered = dock_pose_.pose.position;
+  const double dx = robot.x - measured.x;
+  const double dy = robot.y - measured.y;
+  const double heading_offset =
+    getDockDirection() == opennav_docking_core::DockDirection::BACKWARD ? M_PI : 0.0;
+  const double yaw_error = tf2::getYaw(base.pose.orientation) -
+    tf2::getYaw(raw.pose.orientation) - heading_offset;
+  const rclcpp::Time scan_stamp(latest_.pose.header.stamp, node_->get_clock()->get_clock_type());
+  const double scan_age_ms = (node_->now() - scan_stamp).seconds() * 1000.0;
+  RCLCPP_INFO(node_->get_logger(),
+    "LiDAR dock %s id=%s frame=%s scan_age_ms=%.1f robot=(%.3f,%.3f) "
+    "detected=(%.3f,%.3f) filtered=(%.3f,%.3f) "
+    "dx_cm=%+.2f dy_cm=%+.2f xy_cm=%.2f yaw_deg=%+.2f "
+    "filtered_xy_cm=%.2f threshold_cm=%.2f",
+    phase, id_.c_str(), frame.c_str(), scan_age_ms,
+    robot.x, robot.y, measured.x, measured.y, filtered.x, filtered.y,
+    100.0 * dx, 100.0 * dy, 100.0 * std::hypot(dx, dy), std::remainder(yaw_error, 2.0 * M_PI) * 180.0 / M_PI,
+    100.0 * std::hypot(robot.x - filtered.x, robot.y - filtered.y),
+    100.0 * docking_threshold_);
 }
 
 void LidarDock::deactivate()

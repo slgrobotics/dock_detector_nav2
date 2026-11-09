@@ -8,7 +8,7 @@ from rclpy.node import Node
 from lifecycle_msgs.srv import ChangeState
 from lifecycle_msgs.msg import Transition
 import yaml
-from dock_detector.nav2_config import merge_nav2
+from dock_detector.nav2_config_merger import merge_nav2
 
 
 def test_real_docking_server_loads_generated_named_plugin():

@@ -41,6 +41,7 @@ void LidarDock::configure(const nav2::LifecycleNode::WeakPtr & parent,
   }
   docking_threshold_yaw_rad_ = docking_threshold_yaw_deg * M_PI / 180.0;
   trace_enabled_ = node_->declare_or_get_parameter(name + ".trace_enabled", false);
+  trace_final_yaw_deg_ = node_->declare_or_get_parameter(name + ".trace_final_yaw_deg", 0.0);
   selection_timeout_ = node_->declare_or_get_parameter(name + ".selection_timeout", 3.0);
   filter_coefficient_ = node_->declare_or_get_parameter(name + ".filter_coef", 0.1);
   if (!std::isfinite(selection_timeout_) || selection_timeout_ <= 0 ||
@@ -234,7 +235,11 @@ void LidarDock::traceApproach(bool arrived, const geometry_msgs::msg::PoseStampe
 {
   auto raw = latest_.pose;
   const auto & frame = dock_pose_.header.frame_id;
-  const char * phase = arrived ? "arrival" : "approach";
+  const bool position_only = trace_final_yaw_deg_ > 0.0;
+  const char * phase = arrived && !position_only ? "arrival" : "approach";
+  const char * handoff = arrived && position_only ? " phase=position_reached" : "";
+  const double trace_yaw_deg = position_only ? trace_final_yaw_deg_ :
+    docking_threshold_yaw_rad_ * 180.0 / M_PI;
   try {
     if (raw.header.frame_id != frame) {
       tf2_buffer_->transform(raw, raw, frame);
@@ -254,10 +259,10 @@ void LidarDock::traceApproach(bool arrived, const geometry_msgs::msg::PoseStampe
   const double scan_age_ms = (node_->now() - scan_stamp).seconds() * 1000.0;
   RCLCPP_INFO(node_->get_logger(),
     "DOCK: %s id=%s frame=%s scan_age_ms=%.1f robot=(%.3f,%.3f) "
-    "detected=(%.3f,%.3f) filtered=(%.3f,%.3f) threshold_cm=%.2f threshold_yaw_deg=%.2f",
+    "detected=(%.3f,%.3f) filtered=(%.3f,%.3f) threshold_cm=%.2f threshold_yaw_deg=%.2f%s",
     phase, id_.c_str(), frame.c_str(), scan_age_ms,
     robot.x, robot.y, measured.x, measured.y, filtered.x, filtered.y, 100.0 * docking_threshold_,
-    docking_threshold_yaw_rad_ * 180.0 / M_PI
+    trace_yaw_deg, handoff
   );
   RCLCPP_INFO(node_->get_logger(),
     "      xy_cm=%.2f yaw_deg=%+.2f filtered_xy_cm=%.2f dx_cm=%+.2f dy_cm=%+.2f "

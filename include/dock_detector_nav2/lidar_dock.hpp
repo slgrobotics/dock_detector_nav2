@@ -40,6 +40,7 @@ private:
   Steady::time_point requested_, receipt_;
   Steady::time_point last_trace_{};
   bool trace_enabled_{false};
+  double trace_final_yaw_deg_{0.0};
   rclcpp::Time selected_stamp_{0, 0, RCL_ROS_TIME};
   int64_t filtered_stamp_{0};
   double docking_threshold_yaw_rad_;

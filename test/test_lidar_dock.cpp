@@ -151,6 +151,50 @@ TEST_F(PluginTest, ArrivalRequiresPositionAndBackwardHeading)
   EXPECT_FALSE(plugin->isDocked());
 }
 
+TEST_F(PluginTest, StagingRejectionAndNearDockAbortAreDistinct)
+{
+  plugin->deactivate();
+  plugin->cleanup();
+  ASSERT_TRUE(node->set_parameters_atomically({
+    rclcpp::Parameter("lidar.staging_lateral_tolerance", .05),
+    rclcpp::Parameter("lidar.staging_yaw_tolerance", 5.0),
+    rclcpp::Parameter("lidar.staging_min_distance", .20),
+    rclcpp::Parameter("lidar.approach_guard_distance", .08),
+    rclcpp::Parameter("lidar.docking_threshold", .025),
+  }).successful);
+  plugin->configure(node, "lidar", tf);
+  plugin->activate();
+  ASSERT_TRUE(plugin->startDetectionProcess());
+  select("a");
+
+  geometry_msgs::msg::TransformStamped base;
+  base.header.frame_id = "odom";
+  base.child_frame_id = "base_link";
+  base.transform.translation.x = 1.2;
+  base.transform.translation.y = .07;
+  base.transform.rotation.z = 1.0;
+  base.transform.rotation.w = 0.0;
+  base.header.stamp = node->now();
+  ASSERT_TRUE(tf->setTransform(base, "test"));
+  publisher->publish(measurement());
+  spin();
+  EXPECT_THROW(plugin->getRefinedPose(pose, "a"), opennav_docking_core::FailedToStage);
+
+  base.transform.translation.y = 0.0;
+  base.header.stamp = node->now();
+  ASSERT_TRUE(tf->setTransform(base, "test"));
+  publisher->publish(measurement());
+  spin();
+  ASSERT_TRUE(plugin->getRefinedPose(pose, "a"));
+
+  // Same LiDAR scan, but the robot has moved into the last 8 cm off-center.
+  base.transform.translation.x = 1.94;
+  base.transform.translation.y = .03;
+  base.header.stamp = node->now();
+  ASSERT_TRUE(tf->setTransform(base, "test"));
+  EXPECT_THROW(plugin->getRefinedPose(pose, "a"), opennav_docking_core::FailedToControl);
+}
+
 TEST_F(PluginTest, UnknownDockAndUnnamedGoalFail)
 {
   EXPECT_THROW(plugin->getRefinedPose(pose, ""), opennav_docking_core::FailedToDetectDock);

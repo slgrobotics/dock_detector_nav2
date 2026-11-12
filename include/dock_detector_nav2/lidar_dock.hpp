@@ -27,6 +27,11 @@ private:
   void receive(Detection::ConstSharedPtr);
   void reset();
   bool fresh() const;
+  bool checkApproachGeometry(const geometry_msgs::msg::PoseStamped & dock);
+  double staging_lateral_tolerance_{0.0};
+  double staging_yaw_tolerance_{0.0};
+  double staging_min_distance_{0.0};
+  double approach_guard_distance_{0.0};
   void traceApproach(bool arrived, const geometry_msgs::msg::PoseStamped & base,
     double heading_offset, double filtered_yaw_error);
   std::mutex mutex_;

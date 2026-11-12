@@ -40,6 +40,24 @@ void LidarDock::configure(const nav2::LifecycleNode::WeakPtr & parent,
     throw std::invalid_argument("docking_threshold_yaw must be in (0, 180] degrees");
   }
   docking_threshold_yaw_rad_ = docking_threshold_yaw_deg * M_PI / 180.0;
+  staging_lateral_tolerance_ = node_->declare_or_get_parameter(
+    name + ".staging_lateral_tolerance", 0.0);
+  staging_yaw_tolerance_ = node_->declare_or_get_parameter(
+    name + ".staging_yaw_tolerance", 0.0);
+  staging_min_distance_ = node_->declare_or_get_parameter(
+    name + ".staging_min_distance", 0.0);
+  approach_guard_distance_ = node_->declare_or_get_parameter(
+    name + ".approach_guard_distance", 0.0);
+  for (double value : {staging_lateral_tolerance_, staging_yaw_tolerance_,
+    staging_min_distance_, approach_guard_distance_})
+  {
+    if (!std::isfinite(value) || value < 0.0) {
+      throw std::invalid_argument("Dock approach limits must be finite and nonnegative");
+    }
+  }
+  if (staging_yaw_tolerance_ > 180.0) {
+    throw std::invalid_argument("staging_yaw_tolerance must be at most 180 degrees");
+  }
   trace_enabled_ = node_->declare_or_get_parameter(name + ".trace_enabled", false);
   trace_final_yaw_deg_ = node_->declare_or_get_parameter(name + ".trace_final_yaw_deg", 0.0);
   selection_timeout_ = node_->declare_or_get_parameter(name + ".selection_timeout", 3.0);
@@ -184,14 +202,84 @@ bool LidarDock::getRefinedPose(geometry_msgs::msg::PoseStamped & pose, std::stri
   int64_t stamp = rclcpp::Time(detected.header.stamp).nanoseconds();
   if (stamp != filtered_stamp_) {
     detected = filter_->update(detected);
+    if (!checkApproachGeometry(detected)) {return false;}
     dock_pose_ = detected;
     dock_pose_.pose.position.z = 0.;
     filtered_stamp_ = stamp;
     refined_ = true;
     filtered_dock_pose_pub_->publish(dock_pose_);
     dock_pose_pub_->publish(dock_pose_);
+  } else if (!checkApproachGeometry(dock_pose_)) {
+    return false;
   }
   pose = dock_pose_;
+  return true;
+}
+
+bool LidarDock::checkApproachGeometry(const geometry_msgs::msg::PoseStamped & dock)
+{
+  if (staging_lateral_tolerance_ == 0.0 && staging_yaw_tolerance_ == 0.0 &&
+    staging_min_distance_ == 0.0 && approach_guard_distance_ == 0.0)
+  {
+    return true;
+  }
+
+  geometry_msgs::msg::PoseStamped base;
+  base.header.frame_id = base_frame_id_;
+  base.pose.orientation.w = 1.0;
+  try {
+    tf2_buffer_->transform(base, base, dock.header.frame_id);
+  } catch (const tf2::TransformException &) {
+    return false;
+  }
+  const double age = (node_->now() -
+    rclcpp::Time(base.header.stamp, node_->get_clock()->get_clock_type())).seconds();
+  if (!std::isfinite(age) || age < -.1 || age > external_detection_timeout_) {
+    return false;
+  }
+  const double yaw = tf2::getYaw(dock.pose.orientation);
+  const double dx = base.pose.position.x - dock.pose.position.x;
+  const double dy = base.pose.position.y - dock.pose.position.y;
+  const double longitudinal = dx * std::cos(yaw) + dy * std::sin(yaw);
+  const double lateral = -dx * std::sin(yaw) + dy * std::cos(yaw);
+  const double heading_offset =
+    getDockDirection() == opennav_docking_core::DockDirection::BACKWARD ? M_PI : 0.0;
+  const double heading_error = yawError(base.pose, dock.pose, heading_offset) * 180.0 / M_PI;
+  if (!std::isfinite(longitudinal) || !std::isfinite(lateral) ||
+    !std::isfinite(heading_error))
+  {
+    return false;
+  }
+  if (!refined_) {
+    RCLCPP_INFO(node_->get_logger(),
+      "DOCK: staging id=%s longitudinal_cm=%+.2f lateral_cm=%+.2f yaw_deg=%+.2f",
+      id_.c_str(), 100.0 * longitudinal, 100.0 * lateral, heading_error);
+    if (staging_min_distance_ > 0.0 && longitudinal > -staging_min_distance_) {
+      throw opennav_docking_core::FailedToControl(
+              "Dock staging too close to parking for automatic correction");
+    }
+    if ((staging_lateral_tolerance_ > 0.0 && std::abs(lateral) > staging_lateral_tolerance_) ||
+      (staging_yaw_tolerance_ > 0.0 && std::abs(heading_error) > staging_yaw_tolerance_))
+    {
+      const auto target = getStagingPose(dock.pose, dock.header.frame_id);
+      std::ostringstream correction;
+      correction.precision(17);
+      // Private handoff to the alignment action, carried in the Nav2 result.
+      correction << "LiDAR staging rejected: " << target.header.frame_id << ' ' <<
+        target.pose.position.x << ' ' << target.pose.position.y << ' ' <<
+        tf2::getYaw(target.pose.orientation);
+      throw opennav_docking_core::FailedToStage(correction.str());
+    }
+  }
+  if (approach_guard_distance_ > 0.0 && longitudinal >= -approach_guard_distance_ &&
+    (std::abs(lateral) >= docking_threshold_ ||
+    (longitudinal >= 0.0 && std::hypot(dx, dy) >= docking_threshold_)))
+  {
+    std::ostringstream reason;
+    reason << "LiDAR approach guard: longitudinal_cm=" << 100.0 * longitudinal <<
+      " lateral_cm=" << 100.0 * lateral << " yaw_deg=" << heading_error;
+    throw opennav_docking_core::FailedToControl(reason.str());
+  }
   return true;
 }
 
@@ -255,6 +343,11 @@ void LidarDock::traceApproach(bool arrived, const geometry_msgs::msg::PoseStampe
   const auto & filtered = dock_pose_.pose.position;
   const double dx = robot.x - measured.x;
   const double dy = robot.y - measured.y;
+  const double yaw = tf2::getYaw(dock_pose_.pose.orientation);
+  const double filtered_dx = robot.x - filtered.x;
+  const double filtered_dy = robot.y - filtered.y;
+  const double longitudinal = filtered_dx * std::cos(yaw) + filtered_dy * std::sin(yaw);
+  const double lateral = -filtered_dx * std::sin(yaw) + filtered_dy * std::cos(yaw);
   const rclcpp::Time scan_stamp(latest_.pose.header.stamp, node_->get_clock()->get_clock_type());
   const double scan_age_ms = (node_->now() - scan_stamp).seconds() * 1000.0;
   RCLCPP_INFO(node_->get_logger(),
@@ -266,12 +359,12 @@ void LidarDock::traceApproach(bool arrived, const geometry_msgs::msg::PoseStampe
   );
   RCLCPP_INFO(node_->get_logger(),
     "      xy_cm=%.2f yaw_deg=%+.2f filtered_xy_cm=%.2f dx_cm=%+.2f dy_cm=%+.2f "
-    "filtered_yaw_deg=%+.2f",
+    "filtered_yaw_deg=%+.2f longitudinal_cm=%+.2f lateral_cm=%+.2f",
     100.0 * std::hypot(dx, dy),
     yawError(base.pose, raw.pose, heading_offset) * 180.0 / M_PI,
     100.0 * std::hypot(robot.x - filtered.x, robot.y - filtered.y),
     100.0 * dx, 100.0 * dy,
-    filtered_yaw_error * 180.0 / M_PI
+    filtered_yaw_error * 180.0 / M_PI, 100.0 * longitudinal, 100.0 * lateral
   );
 }
 

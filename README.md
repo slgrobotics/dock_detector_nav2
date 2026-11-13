@@ -113,9 +113,9 @@ Ordinary Nav2 requests then work:
 
 ```bash
 ros2 action send_goal /dock_robot nav2_msgs/action/DockRobot \
-  "{use_dock_id: true, dock_id: trapezoid_bay, navigate_to_staging_pose: true}" --feedback
+  "{use_dock_id: true, dock_id: sim_trapezoid_bay, navigate_to_staging_pose: true}" --feedback
 ros2 action send_goal /dock_robot nav2_msgs/action/DockRobot \
-  "{use_dock_id: true, dock_id: v_bay, navigate_to_staging_pose: true}" --feedback
+  "{use_dock_id: true, dock_id: sim_v_bay, navigate_to_staging_pose: true}" --feedback
 ros2 action send_goal /undock_robot nav2_msgs/action/UndockRobot \
   "{dock_type: lidar_dock, max_undocking_time: 60.0}" --feedback
 ```

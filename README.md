@@ -151,6 +151,16 @@ remain closed, and the next selection replaces the remote acquisition.
 Use one docking task owner per robot; do not run the experimental controller
 concurrently. This is not a fleet reservation or access-control service.
 
+`approach_guard_lateral_tolerance` (meters, default `0.0`) separates the
+near-dock approach corridor from the final parking radius. Zero inherits
+`docking_threshold` for compatibility. Seggy real uses `0.04`: lateral error
+below 4 cm is allowed while approaching within `approach_guard_distance` of
+parking. At or beyond the parking plane, the original `docking_threshold`
+radial check still applies (2.5 cm for Seggy). Final arrival, yaw alignment,
+and insertion checks retain their own limits. Configure this at startup and
+restart the docking server; it is not dynamically updated by the plugin.
+Guard rejection traces include both lateral and parking limits in centimeters.
+
 Plugin parameters (under its configured type ID, e.g. lidar_dock):
 
 - selection_service: dock_detector/select_dock (relative to robot namespace)

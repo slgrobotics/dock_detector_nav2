@@ -48,8 +48,10 @@ void LidarDock::configure(const nav2::LifecycleNode::WeakPtr & parent,
     name + ".staging_min_distance", 0.0);
   approach_guard_distance_ = node_->declare_or_get_parameter(
     name + ".approach_guard_distance", 0.0);
+  approach_guard_lateral_tolerance_ = node_->declare_or_get_parameter(
+    name + ".approach_guard_lateral_tolerance", 0.0);
   for (double value : {staging_lateral_tolerance_, staging_yaw_tolerance_,
-    staging_min_distance_, approach_guard_distance_})
+    staging_min_distance_, approach_guard_distance_, approach_guard_lateral_tolerance_})
   {
     if (!std::isfinite(value) || value < 0.0) {
       throw std::invalid_argument("Dock approach limits must be finite and nonnegative");
@@ -271,13 +273,17 @@ bool LidarDock::checkApproachGeometry(const geometry_msgs::msg::PoseStamped & do
       throw opennav_docking_core::FailedToStage(correction.str());
     }
   }
+  const double lateral_limit = approach_guard_lateral_tolerance_ > 0.0 ?
+    approach_guard_lateral_tolerance_ : docking_threshold_;
   if (approach_guard_distance_ > 0.0 && longitudinal >= -approach_guard_distance_ &&
-    (std::abs(lateral) >= docking_threshold_ ||
+    (std::abs(lateral) >= lateral_limit ||
     (longitudinal >= 0.0 && std::hypot(dx, dy) >= docking_threshold_)))
   {
     std::ostringstream reason;
     reason << "LiDAR approach guard: longitudinal_cm=" << 100.0 * longitudinal <<
-      " lateral_cm=" << 100.0 * lateral << " yaw_deg=" << heading_error;
+      " lateral_cm=" << 100.0 * lateral << " yaw_deg=" << heading_error <<
+      " lateral_limit_cm=" << 100.0 * lateral_limit <<
+      " parking_limit_cm=" << 100.0 * docking_threshold_;
     throw opennav_docking_core::FailedToControl(reason.str());
   }
   return true;
